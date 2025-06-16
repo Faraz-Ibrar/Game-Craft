@@ -1,0 +1,626 @@
+ASSIGNMENT/
+├── backend/
+│   ├── models/
+│   │   ├── Cart.js
+│   │   ├── Checkout.js
+│   │   └── MenuItem.js
+│   ├── node_modules/
+│   ├── routes/
+│   │   ├── cartRoutes.js
+│   │   ├── checkoutRoutes.js
+│   │   └── menuRoutes.js
+│   ├── .env
+│   ├── h.txt
+│   ├── package-lock.json
+│   ├── package.json
+│   └── server.js
+└── frontend/
+    ├── build/
+    ├── node_modules/
+    ├── public/
+    ├── src/
+    │   ├── Components/
+    │   │   └── MenuManager/
+    │   │       ├── Cart.css
+    │   │       ├── Cart.jsx
+    │   │       ├── Checkout.css
+    │   │       ├── Checkout.jsx
+    │   │       ├── MenuItemCard.css
+    │   │       ├── MenuItemCard.jsx
+    │   │       ├── MenuManager.css
+    │   │       └── MenuManager.jsx
+    │   ├── MenuPage/
+    │   ├── data/
+    │   ├── App.js
+    │   └── index.js
+    ├── .gitignore
+    ├── package-lock.json
+    ├── package.json
+    └── README.md
+
+//backend/models/Cart.js
+const mongoose = require('mongoose');
+
+const cartSchema = new mongoose.Schema({
+  userId: { type: String, required: true },
+  items: [
+    {
+      menuItemId: { type: String, required: true },
+      name: { type: String, required: true },
+      image: { type: String, required: true },
+      price: { type: Number, required: true },
+      serves: { type: Number, required: true },
+      personCount: { type: Number, required: true, default: 1 },    // Added for frontend compatibility
+      servingsCount: { type: Number, required: true, default: 1 },  // Added for frontend compatibility
+      totalPrice: { type: Number, required: true }                  // Added for frontend compatibility
+    }
+  ],
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+// Update the updatedAt field before saving
+cartSchema.pre('save', function(next) {
+  this.updatedAt = Date.now();
+  next();
+});
+
+// Update the updatedAt field before findOneAndUpdate
+cartSchema.pre('findOneAndUpdate', function(next) {
+  this.set({ updatedAt: Date.now() });
+  next();
+});
+
+module.exports = mongoose.model('Cart', cartSchema);
+
+
+//backend/models/Checkout.js
+
+const mongoose = require('mongoose');
+
+const checkoutSchema = new mongoose.Schema({
+  userId: { type: String, required: true },
+  cartItems: [
+    {
+      menuItemId: { type: String, required: true },
+      name: { type: String, required: true },
+      image: { type: String, required: true },
+      price: { type: Number, required: true },
+      serves: { type: Number, required: true },
+      personCount: { type: Number, required: true },    // Added for React app
+      servingsCount: { type: Number, required: true },  // Added for React app
+      totalPrice: { type: Number, required: true }      // Added for React app
+    }
+  ],
+  totalAmount: { type: Number, required: true },
+  deliveryAddress: { type: String, required: true },
+  deliveryTime: { type: String }, // Optional: if you want to save delivery time
+  status: { type: String, default: 'pending' }, // pending, confirmed, delivered, etc.
+  timestamp: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+module.exports = mongoose.model('Checkout', checkoutSchema);
+
+
+//backend/models/menuItem.js
+
+const mongoose = require('mongoose');
+
+const menuItemSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  price: { type: Number, required: true },
+  serves: { type: Number, required: true },
+  image: { type: String, required: true },
+  description: { type: String },
+  category: { type: String }, // optional: appetizer, main, dessert, etc.
+  available: { type: Boolean, default: true }
+}, {
+  timestamps: true // adds createdAt and updatedAt
+});
+
+module.exports = mongoose.model('MenuItem', menuItemSchema);
+
+
+
+//backend/routes/cartRoutes.js
+
+const express = require('express');
+const router = express.Router();
+const Cart = require('../models/Cart');
+
+// Create or Update Cart (Upsert by userId)
+router.post('/', async (req, res) => {
+  try {
+    const { userId, items } = req.body;
+    
+    if (!userId || !items || !Array.isArray(items)) {
+      return res.status(400).json({ message: 'Invalid request body. userId and items array are required.' });
+    }
+
+    // Validate each item in the array
+    for (const item of items) {
+      if (!item.menuItemId || !item.name || !item.image || !item.price || !item.serves) {
+        return res.status(400).json({ 
+          message: 'Each cart item must have menuItemId, name, image, price, and serves.' 
+        });
+      }
+      
+      // Set defaults for new fields if not provided
+      if (!item.personCount) item.personCount = 1;
+      if (!item.servingsCount) item.servingsCount = Math.ceil(item.personCount / item.serves);
+      if (!item.totalPrice) item.totalPrice = item.servingsCount * item.price;
+    }
+
+    const cart = await Cart.findOneAndUpdate(
+      { userId },
+      { items },
+      { new: true, upsert: true }
+    );
+
+    res.status(200).json(cart);
+  } catch (error) {
+    console.error('Error in creating/updating cart:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Get ALL Carts (for admin purposes)
+router.get('/', async (req, res) => {
+  try {
+    const carts = await Cart.find().sort({ updatedAt: -1 });
+    res.status(200).json(carts);
+  } catch (error) {
+    console.error('Error fetching carts:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Get Cart by User ID
+router.get('/:userId', async (req, res) => {
+  try {
+    const cart = await Cart.findOne({ userId: req.params.userId });
+    if (!cart) {
+      return res.status(404).json({ message: 'Cart not found' });
+    }
+    res.status(200).json(cart);
+  } catch (error) {
+    console.error('Error fetching cart by userId:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Update Cart by User ID
+router.put('/:userId', async (req, res) => {
+  try {
+    const { items } = req.body;
+    
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ message: 'Invalid request body. items array is required.' });
+    }
+
+    // Validate and set defaults for each item
+    for (const item of items) {
+      if (!item.menuItemId || !item.name || !item.image || !item.price || !item.serves) {
+        return res.status(400).json({ 
+          message: 'Each cart item must have menuItemId, name, image, price, and serves.' 
+        });
+      }
+      
+      if (!item.personCount) item.personCount = 1;
+      if (!item.servingsCount) item.servingsCount = Math.ceil(item.personCount / item.serves);
+      if (!item.totalPrice) item.totalPrice = item.servingsCount * item.price;
+    }
+
+    const cart = await Cart.findOneAndUpdate(
+      { userId: req.params.userId },
+      { items },
+      { new: true }
+    );
+    
+    if (!cart) {
+      return res.status(404).json({ message: 'Cart not found' });
+    }
+    
+    res.status(200).json(cart);
+  } catch (error) {
+    console.error('Error updating cart:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Add single item to cart
+router.post('/:userId/add-item', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { menuItemId, name, image, price, serves, personCount = 1 } = req.body;
+
+    if (!menuItemId || !name || !image || !price || !serves) {
+      return res.status(400).json({ 
+        message: 'Required fields: menuItemId, name, image, price, serves' 
+      });
+    }
+
+    const servingsCount = Math.ceil(personCount / serves);
+    const totalPrice = servingsCount * price;
+
+    let cart = await Cart.findOne({ userId });
+
+    if (!cart) {
+      // Create new cart
+      cart = new Cart({
+        userId,
+        items: [{
+          menuItemId,
+          name,
+          image,
+          price,
+          serves,
+          personCount,
+          servingsCount,
+          totalPrice
+        }]
+      });
+    } else {
+      // Check if item already exists
+      const existingItemIndex = cart.items.findIndex(item => item.menuItemId === menuItemId);
+      
+      if (existingItemIndex >= 0) {
+        // Update existing item
+        const existingItem = cart.items[existingItemIndex];
+        const newPersonCount = existingItem.personCount + personCount;
+        const newServingsCount = Math.ceil(newPersonCount / serves);
+        const newTotalPrice = newServingsCount * price;
+
+        cart.items[existingItemIndex] = {
+          ...existingItem.toObject(),
+          personCount: newPersonCount,
+          servingsCount: newServingsCount,
+          totalPrice: newTotalPrice
+        };
+      } else {
+        // Add new item
+        cart.items.push({
+          menuItemId,
+          name,
+          image,
+          price,
+          serves,
+          personCount,
+          servingsCount,
+          totalPrice
+        });
+      }
+    }
+
+    await cart.save();
+    res.status(200).json(cart);
+  } catch (error) {
+    console.error('Error adding item to cart:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Remove single item from cart
+router.delete('/:userId/remove-item/:menuItemId', async (req, res) => {
+  try {
+    const { userId, menuItemId } = req.params;
+
+    const cart = await Cart.findOne({ userId });
+    if (!cart) {
+      return res.status(404).json({ message: 'Cart not found' });
+    }
+
+    cart.items = cart.items.filter(item => item.menuItemId !== menuItemId);
+    await cart.save();
+
+    res.status(200).json(cart);
+  } catch (error) {
+    console.error('Error removing item from cart:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Delete entire Cart by User ID
+router.delete('/:userId', async (req, res) => {
+  try {
+    const deletedCart = await Cart.findOneAndDelete({ userId: req.params.userId });
+    if (!deletedCart) {
+      return res.status(404).json({ message: 'Cart not found' });
+    }
+    res.status(200).json({ message: 'Cart deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting cart:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Get cart summary (total items, total amount)
+router.get('/:userId/summary', async (req, res) => {
+  try {
+    const cart = await Cart.findOne({ userId: req.params.userId });
+    if (!cart) {
+      return res.status(404).json({ message: 'Cart not found' });
+    }
+
+    const totalItems = cart.items.length;
+    const totalAmount = cart.items.reduce((sum, item) => sum + item.totalPrice, 0);
+    const totalPersons = cart.items.reduce((sum, item) => sum + item.personCount, 0);
+
+    res.status(200).json({
+      userId: cart.userId,
+      totalItems,
+      totalAmount,
+      totalPersons,
+      lastUpdated: cart.updatedAt
+    });
+  } catch (error) {
+    console.error('Error fetching cart summary:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+module.exports = router;
+
+
+//backend/routes/CheckoutRoutes.js
+
+const express = require('express');
+const router = express.Router();
+const Checkout = require('../models/Checkout');
+
+// Create Checkout
+router.post('/', async (req, res) => {
+  try {
+    const {
+      userId,
+      cartItems,
+      totalAmount,
+      deliveryAddress
+    } = req.body;
+
+    // Basic validation
+    if (
+      !userId ||
+      !cartItems ||
+      !Array.isArray(cartItems) ||
+      cartItems.length === 0 ||
+      !totalAmount ||
+      !deliveryAddress
+    ) {
+      return res.status(400).json({ message: 'Invalid request body. Required fields missing or incorrect.' });
+    }
+
+    const checkout = new Checkout({
+      userId,
+      cartItems,
+      totalAmount,
+      deliveryAddress
+    });
+
+    await checkout.save();
+
+    res.status(201).json(checkout);
+  } catch (error) {
+    console.error('Error creating checkout:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Get all Checkouts
+router.get('/', async (req, res) => {
+  try {
+    const checkouts = await Checkout.find();
+    res.status(200).json(checkouts);
+  } catch (error) {
+    console.error('Error fetching checkouts:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Get single Checkout by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const checkout = await Checkout.findById(req.params.id);
+    if (!checkout) {
+      return res.status(404).json({ message: 'Checkout not found' });
+    }
+    res.status(200).json(checkout);
+  } catch (error) {
+    console.error('Error fetching checkout:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Update Checkout by ID
+router.put('/:id', async (req, res) => {
+  try {
+    const updated = await Checkout.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+    if (!updated) {
+      return res.status(404).json({ message: 'Checkout not found' });
+    }
+    res.status(200).json(updated);
+  } catch (error) {
+    console.error('Error updating checkout:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Delete Checkout by ID
+router.delete('/:id', async (req, res) => {
+  try {
+    const deleted = await Checkout.findByIdAndDelete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ message: 'Checkout not found' });
+    }
+    res.status(200).json({ message: 'Checkout deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting checkout:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+module.exports = router;
+
+//backend/routes/menuRoutes.js
+const express = require('express');
+const router = express.Router();
+const MenuItem = require('../models/MenuItem');
+
+// GET all menu items
+router.get('/', async (req, res) => {
+  try {
+    const menuItems = await MenuItem.find({ available: true }); // Only show available items
+    res.status(200).json(menuItems);
+  } catch (error) {
+    console.error('Error fetching menu items:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// GET single menu item by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const menuItem = await MenuItem.findById(req.params.id);
+    if (!menuItem) {
+      return res.status(404).json({ message: 'Menu item not found' });
+    }
+    res.status(200).json(menuItem);
+  } catch (error) {
+    console.error('Error fetching menu item:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// POST create new menu item (for admin)
+router.post('/', async (req, res) => {
+  try {
+    const { name, price, serves, image, description, category } = req.body;
+
+    if (!name || !price || !serves || !image) {
+      return res.status(400).json({ message: 'Required fields: name, price, serves, image' });
+    }
+
+    const menuItem = new MenuItem({
+      name,
+      price,
+      serves,
+      image,
+      description,
+      category
+    });
+
+    await menuItem.save();
+    res.status(201).json(menuItem);
+  } catch (error) {
+    console.error('Error creating menu item:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PUT update menu item by ID (for admin)
+router.put('/:id', async (req, res) => {
+  try {
+    const updatedMenuItem = await MenuItem.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+    
+    if (!updatedMenuItem) {
+      return res.status(404).json({ message: 'Menu item not found' });
+    }
+    
+    res.status(200).json(updatedMenuItem);
+  } catch (error) {
+    console.error('Error updating menu item:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// DELETE menu item by ID (for admin)
+router.delete('/:id', async (req, res) => {
+  try {
+    const deletedMenuItem = await MenuItem.findByIdAndDelete(req.params.id);
+    if (!deletedMenuItem) {
+      return res.status(404).json({ message: 'Menu item not found' });
+    }
+    res.status(200).json({ message: 'Menu item deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting menu item:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+module.exports = router;
+
+
+
+//backend/server.js
+
+const express = require('express');
+const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+const bodyParser = require('body-parser');
+const cors = require('cors'); // Add CORS
+
+const cartRoutes = require('./routes/cartRoutes');
+const checkoutRoutes = require('./routes/checkoutRoutes');
+const menuRoutes = require('./routes/menuRoutes');
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middleware
+app.use(cors({
+  origin: 'http://localhost:3000', // Allow requests from React app
+  credentials: true
+}));
+
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// MongoDB connection
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
+.then(() => console.log('MongoDB connected'))
+.catch(err => {
+  console.error('MongoDB connection error:', err);
+  process.exit(1);
+});
+
+// Routes
+app.use('/api/cart', cartRoutes);
+app.use('/api/checkout', checkoutRoutes);
+app.use('/api/menu-items', menuRoutes);
+
+// Home route
+app.get('/', (req, res) => {
+  res.send('Welcome to HomeCook Backend!');
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(500).json({ message: 'Internal server error' });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});

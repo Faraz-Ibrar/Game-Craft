@@ -1,0 +1,18 @@
+.hero-carousel {
+  margin-bottom: 30px;
+}
+
+.hero-carousel .carousel-caption {
+  background-color: rgba(0, 0, 0, 0.5);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.hero-carousel .carousel-caption h3 {
+  font-size: 2rem;
+  margin-bottom: 10px;
+}
+
+.hero-carousel .carousel-caption p {
+  font-size: 1.2rem;
+}

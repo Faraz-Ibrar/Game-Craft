@@ -1,0 +1,65 @@
+[
+  {
+    "name": "Dell XPS 13",
+    "price": 999.99,
+    "category": "Laptop",
+    "brand": "Dell",
+    "specifications": "Intel Core i7, 16GB RAM, 512GB SSD",
+    "image": "https://www.google.com/url?sa=i&url=https%3A%2F%2Fwww.asifcomputers.com%2Fproduct%2Fdell-xps-13-9345-snapdragon-x1e-80-100-3-4-ghz-16gb-ram-512gb-ssd-13-4-oled-price-in-pakistan%2F&psig=AOvVaw0KzlJlH-VwhGnMybdqgHji&ust=1749755944718000&source=images&cd=vfe&opi=89978449&ved=0CBQQjRxqFwoTCNi5if-K6o0DFQAAAAAdAAAAABAE",
+    "available": true
+  },
+  {
+    "name": "Apple MacBook Air",
+    "price": 1099.99,
+    "category": "Laptop",
+    "brand": "Apple",
+    "specifications": "Apple M1, 8GB RAM, 256GB SSD",
+    "image": "https://www.google.com/url?sa=i&url=https%3A%2F%2Fwww.techmate.pk%2Fapple%2Fmacbook%2Fmacbook-air%2Fapple-macbook-air-13-6-m2-chip-silver-mlxy3ll-a&psig=AOvVaw0t-WCF-CGUexlg24AYSfdH&ust=1749756106160000&source=images&cd=vfe&opi=89978449&ved=0CBQQjRxqFwoTCIDfns-L6o0DFQAAAAAdAAAAABAE",
+    "available": true
+  },
+  {
+    "name": "NVIDIA GeForce RTX 3080",
+    "price": 699.99,
+    "category": "GPU",
+    "brand": "NVIDIA",
+    "specifications": "10GB GDDR6X, PCI Express 4.0",
+    "image": "https://zestrogaming.com/wp-content/uploads/2022/03/Untitled-design-73.png",
+    "available": true
+  },
+  {
+    "name": "Corsair Vengeance LPX 16GB",
+    "price": 79.99,
+    "category": "RAM",
+    "brand": "Corsair",
+    "specifications": "16GB (2 x 8GB) DDR4-3200",
+    "image": "https://www.google.com/url?sa=i&url=https%3A%2F%2Feasetec.com.pk%2Fproduct%2Fcorsair-vengeance-lpx-32gb-1-x-32gb-ddr4-dram-3000mhz%2F&psig=AOvVaw3TaKSlZgrI9ld37srroqnL&ust=1749756190934000&source=images&cd=vfe&opi=89978449&ved=0CBQQjRxqFwoTCOig7fSL6o0DFQAAAAAdAAAAABAE",
+    "available": true
+  },
+  {
+    "name": "Seasonic Focus GX-750",
+    "price": 129.99,
+    "category": "PSU",
+    "brand": "Seasonic",
+    "specifications": "750W 80+ Gold, Fully Modular",
+    "image": "https://www.google.com/url?sa=i&url=https%3A%2F%2Felectronicgears.com.pk%2Fproduct%2Fseasonic-focus-gx-750-750w-80-gold-full-modular-power-supply%2F&psig=AOvVaw2uovFzM0xpEN_-wIeL8m4O&ust=1749756221047000&source=images&cd=vfe&opi=89978449&ved=0CBQQjRxqFwoTCIih-oGM6o0DFQAAAAAdAAAAABAE",
+    "available": true
+  },
+  {
+    "name": "NZXT H510",
+    "price": 69.99,
+    "category": "PC Case",
+    "brand": "NZXT",
+    "specifications": "Mid Tower ATX Case, Tempered Glass",
+    "image": "https://www.google.com/url?sa=i&url=https%3A%2F%2Ftechmatched.pk%2Fproduct%2Fnzxt-h510-elite-mid-tower-atx-gaming-case%2F&psig=AOvVaw1IHoOBQ3M4Czl-Dwtd8EHA&ust=1749756250630000&source=images&cd=vfe&opi=89978449&ved=0CBQQjRxqFwoTCNjJm5CM6o0DFQAAAAAdAAAAABAE",
+    "available": true
+  },
+  {
+    "name": "LG UltraGear 27GN950-B",
+    "price": 799.99,
+    "category": "Monitor",
+    "brand": "LG",
+    "specifications": "27\" 4K UHD, 144Hz, G-Sync Compatible",
+    "image": "https://www.google.com/url?sa=i&url=https%3A%2F%2Fwww.lg.com%2Fmy%2Fmonitors%2Fultragear-gaming%2F27gn950-b%2F&psig=AOvVaw2emhaPcgQxqBBRIDE6a0s3&ust=1749756276131000&source=images&cd=vfe&opi=89978449&ved=0CBQQjRxqFwoTCPCI-6CM6o0DFQAAAAAdAAAAABAE",
+    "available": true
+  }
+]

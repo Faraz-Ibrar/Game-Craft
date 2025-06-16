@@ -1,0 +1,1353 @@
+
+
+backend/
+├── configurations/
+│   ├── googleConfig.js
+│   └── jwtConfig.js
+├── controllers/
+│   ├── login.js
+│   ├── signup.js
+│   └── user.js
+├── models/
+│   ├── Cart.js
+│   ├── Checkout.js
+│   ├── Product.js
+│   ├── User.js
+│   └── Whole.js
+├── node_modules/
+├── routes/
+│   ├── cartRoutes.js
+│   ├── checkoutRoutes.js
+│   ├── googleAuth.js
+│   ├── login.js
+│   ├── productRoutes.js
+│   ├── signup.js
+│   └── user.js
+├── scripts/
+│   └── admin.js
+├── services/
+│   ├── login.js
+│   ├── signup.js
+│   └── user.js
+├── utils/
+│   ├── authMiddleware.js
+│   └── jwtUtils.js
+├── .env
+├── h.txt
+├── package-lock.json
+├── package.json
+├── server.js
+
+
+
+
+//backend/configurations/googleConfig
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const User = require('../models/User');
+
+passport.use(new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: "/auth/google/callback"
+}, async (accessToken, refreshToken, profile, done) => {
+    try {
+        // Check if user already exists
+        let existingUser = await User.findOne({ googleId: profile.id });
+        
+        if (existingUser) {
+            return done(null, existingUser);
+        }
+        
+        // Check if user exists with same email
+        existingUser = await User.findOne({ email: profile.emails[0].value });
+        
+        if (existingUser) {
+            // Link Google account to existing user
+            existingUser.googleId = profile.id;
+            await existingUser.save();
+            return done(null, existingUser);
+        }
+        
+        // Create new user
+        const newUser = new User({
+            googleId: profile.id,
+            name: profile.displayName,
+            email: profile.emails[0].value,
+            role: 'customer',
+            // No password needed for Google users
+            password: 'google-oauth-user'
+        });
+        
+        const savedUser = await newUser.save();
+        done(null, savedUser);
+        
+    } catch (error) {
+        done(error, null);
+    }
+}));
+
+passport.serializeUser((user, done) => {
+    done(null, user._id);
+});
+
+passport.deserializeUser(async (id, done) => {
+    try {
+        const user = await User.findById(id);
+        done(null, user);
+    } catch (error) {
+        done(error, null);
+    }
+});
+
+module.exports = passport;
+
+
+
+//backend/configurations/jwtConfig
+const crypto = require("crypto");
+
+// Use environment variable or generate a fallback
+const secretKey = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+
+// Add logging to debug
+console.log("JWT Secret loaded:", secretKey ? "✅ Success" : "❌ Failed");
+
+module.exports = {
+    secretKey
+};
+
+
+
+//backend/controllers/login.js
+const authService = require("../services/login");
+
+async function login(req, res) {
+    try {
+        const { email, password } = req.body;
+        const token = await authService.login(email, password);
+        res.json({ token: token });
+    } catch (error) {
+        res.status(401).json({ message: "Invalid credentials" });
+    }
+}
+
+async function refreshToken(req, res) {
+    try {
+        const { token } = req.body;
+        const newToken = await authService.refreshToken(token);
+        res.json({ newToken: newToken });
+    } catch (error) {
+        res.status(401).json({ message: "Invalid token" });
+    }
+}
+
+module.exports = {
+    login,
+    refreshToken
+};
+
+
+//backend/controllers/signup.js
+const userService = require("../services/signup");
+
+async function createUser(req, res) {
+    try {
+        const userData = req.body;
+        const user = await userService.createUser(userData);
+        res.status(201).json({ user: user, message: "User created successfully" })
+    }
+    catch (error) {
+        console.log(error);
+        res.status(400).json({ message: error.message })
+    }
+}
+
+module.exports = { createUser }
+
+
+//backend/controllers/user.js
+const userService = require("../services/user");
+
+async function getUsers(req, res) {
+   try {
+       const users = await userService.getUsers();
+       res.json(users);
+   } catch (error) {
+       res.status(500).json({ message: error });
+   }
+}
+
+module.exports = { getUsers };
+
+
+const mongoose = require('mongoose');
+
+const cartSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  items: [{
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
+    name: { type: String, required: true },
+    image: { type: String, required: true },
+    price: { type: Number, required: true },
+    brand: { type: String, default: '' },
+    category: { type: String, default: 'Electronics' },
+    specifications: { type: String, default: '' },
+    quantity: { type: Number, required: true, default: 1, min: 1 },
+    totalPrice: { type: Number, required: true }
+  }]
+}, {
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+});
+
+// Virtual for populated products
+cartSchema.virtual('products', {
+  ref: 'Product',
+  localField: 'items.productId',
+  foreignField: '_id'
+});
+
+// Virtual for calculating cart total
+cartSchema.virtual('total').get(function () {
+  return this.items.reduce((total, item) => {
+    return total + (item.quantity * (item.product?.price || 0));
+  }, 0);
+});
+
+module.exports = mongoose.model('Cart', cartSchema);
+
+
+const mongoose = require('mongoose');
+
+const checkoutSchema = new mongoose.Schema({
+  userId: { 
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true 
+  },
+  orderNumber: {
+    type: String,
+    required: true,
+    unique: true
+  },
+
+  // Customer Info
+  customerName: { type: String, required: true },
+  customerPhone: { type: String, required: true },
+  customerEmail: { type: String },
+
+  // Cart Items
+  cartItems: [
+    {
+      productId: { 
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Product',
+        required: true 
+      },
+      name: { type: String, required: true },
+      price: { type: Number, required: true },
+      category: { type: String },
+      brand: { type: String },
+      image: { type: String },
+      quantity: { type: Number, required: true, min: 1 },
+      totalPrice: { type: Number, required: true }
+    }
+  ],
+
+  // Amounts
+  totalAmount: { type: Number, required: true },
+  deliveryCharges: { type: Number, default: 200 },
+  finalAmount: { type: Number, required: true },
+
+  // Delivery
+  deliveryAddress: { type: String, required: true },
+  specialInstructions: { type: String },
+
+  // Payment & Order Info
+  paymentMethod: {
+    type: String,
+    required: true,
+    enum: ['cash', 'card', 'online'],
+    default: 'cash'
+  },
+  paymentStatus: {
+    type: String,
+    default: 'pending',
+    enum: ['pending', 'completed', 'failed']
+  },
+  orderStatus: {
+    type: String,
+    default: 'pending',
+    enum: ['pending', 'confirmed', 'processing', 'delivered', 'cancelled']
+  },
+  orderType: {
+    type: String,
+    default: 'electronics'
+  },
+
+  // Delivery tracking
+  actualDelivery: { type: Date }
+}, {
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+});
+
+// Generate order number
+checkoutSchema.pre('save', function(next) {
+  if (this.isNew && !this.orderNumber) {
+    this.orderNumber = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  }
+  next();
+});
+
+// Virtual for populated products
+checkoutSchema.virtual('products', {
+  ref: 'Product',
+  localField: 'cartItems.productId',
+  foreignField: '_id'
+});
+
+// Add static method for phone search
+checkoutSchema.statics.findByPhone = function(phone) {
+  return this.find({ customerPhone: phone });
+};
+
+module.exports = mongoose.model('Checkout', checkoutSchema);
+
+
+const mongoose = require('mongoose');
+
+const productSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  price: { type: Number, required: true },
+  category: { type: String, required: true }, // e.g., 'Laptop', 'GPU', 'RAM', etc.
+  brand: { type: String, required: true }, // e.g., 'Dell', 'NVIDIA', etc.
+  specifications: { type: String }, // Detailed specifications
+  image: { type: String, required: true },
+  available: { type: Boolean, default: true },
+}, {
+  timestamps: true // adds createdAt and updatedAt
+});
+
+module.exports = mongoose.model('Product', productSchema);
+
+
+
+const mongoose = require("mongoose");
+
+const userSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    password: {
+        type: String,
+        required: true
+    },
+    role: {
+        type: String,
+        enum: ["admin", "customer"],
+        default: "customer"
+    },
+    googleId: {
+        type: String,
+        sparse: true  // Allows null values but ensures uniqueness when present
+    }
+}, {
+    timestamps: true
+});
+
+module.exports = mongoose.model("User", userSchema);
+
+const express = require('express');
+const router = express.Router();
+const Cart = require('../models/Cart');
+
+// Create or Update Cart (Upsert by userId) - Fixed for Electronics
+// backend/routes/cartRoutes.js (example for POST /api/cart)
+router.post('/', async (req, res) => {
+  try {
+    const { userId, items } = req.body;
+    
+    if (!userId || !items || !Array.isArray(items)) {
+      return res.status(400).json({ message: 'Invalid request body. userId and items array are required.' });
+    }
+
+    // Validate items
+    for (const item of items) {
+      if (!item.productId || !item.quantity) {
+        return res.status(400).json({ message: 'Each cart item must have productId and quantity.' });
+      }
+      item.quantity = item.quantity || 1;
+    }
+
+    const cart = await Cart.findOneAndUpdate(
+      { userId },
+      { items },
+      { new: true, upsert: true }
+    ).populate('products');
+
+    res.status(200).json(cart);
+  } catch (error) {
+    console.error('Error in creating/updating cart:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+// Get ALL Carts (for admin purposes)
+router.get('/', async (req, res) => {
+  try {
+    const carts = await Cart.find().sort({ updatedAt: -1 });
+    res.status(200).json(carts);
+  } catch (error) {
+    console.error('Error fetching carts:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Get Cart by User ID
+router.get('/:userId', async (req, res) => {
+  try {
+    const cart = await Cart.findOne({ userId: req.params.userId });
+    if (!cart) {
+      return res.status(404).json({ message: 'Cart not found' });
+    }
+    res.status(200).json(cart);
+  } catch (error) {
+    console.error('Error fetching cart by userId:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Update Cart by User ID
+router.put('/:userId', async (req, res) => {
+  try {
+    const { items } = req.body;
+    
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ message: 'Invalid request body. items array is required.' });
+    }
+
+    // Validate and set defaults for each item - FIXED for electronics
+    for (const item of items) {
+      if (!item.productId || !item.name || !item.image || !item.price) {
+        return res.status(400).json({ 
+          message: 'Each cart item must have productId, name, image, and price.' 
+        });
+      }
+      
+      if (!item.quantity) item.quantity = 1;
+      if (!item.totalPrice) item.totalPrice = item.quantity * item.price;
+      if (!item.brand) item.brand = '';
+      if (!item.category) item.category = 'Electronics';
+      if (!item.specifications) item.specifications = '';
+    }
+
+    const cart = await Cart.findOneAndUpdate(
+      { userId: req.params.userId },
+      { items },
+      { new: true }
+    );
+    
+    if (!cart) {
+      return res.status(404).json({ message: 'Cart not found' });
+    }
+    
+    res.status(200).json(cart);
+  } catch (error) {
+    console.error('Error updating cart:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Add single item to cart - FIXED for electronics
+router.post('/:userId/add-item', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { productId, name, image, price, brand = '', category = 'Electronics', specifications = '', quantity = 1 } = req.body;
+
+    if (!productId || !name || !image || !price) {
+      return res.status(400).json({ 
+        message: 'Required fields: productId, name, image, price' 
+      });
+    }
+
+    const totalPrice = quantity * price;
+
+    let cart = await Cart.findOne({ userId });
+
+    if (!cart) {
+      // Create new cart
+      cart = new Cart({
+        userId,
+        items: [{
+          productId,
+          name,
+          image,
+          price,
+          brand,
+          category,
+          specifications,
+          quantity,
+          totalPrice
+        }]
+      });
+    } else {
+      // Check if item already exists
+      const existingItemIndex = cart.items.findIndex(item => item.productId.toString() === productId);
+      
+      if (existingItemIndex >= 0) {
+        // Update existing item
+        const existingItem = cart.items[existingItemIndex];
+        const newQuantity = existingItem.quantity + quantity;
+        const newTotalPrice = newQuantity * price;
+
+        cart.items[existingItemIndex] = {
+          ...existingItem.toObject(),
+          quantity: newQuantity,
+          totalPrice: newTotalPrice
+        };
+      } else {
+        // Add new item
+        cart.items.push({
+          productId,
+          name,
+          image,
+          price,
+          brand,
+          category,
+          specifications,
+          quantity,
+          totalPrice
+        });
+      }
+    }
+
+    await cart.save();
+    res.status(200).json(cart);
+  } catch (error) {
+    console.error('Error adding item to cart:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Remove single item from cart - FIXED for electronics
+router.delete('/:userId/remove-item/:productId', async (req, res) => {
+  try {
+    const { userId, productId } = req.params;
+
+    const cart = await Cart.findOne({ userId });
+    if (!cart) {
+      return res.status(404).json({ message: 'Cart not found' });
+    }
+
+    cart.items = cart.items.filter(item => item.productId.toString() !== productId);
+    await cart.save();
+
+    res.status(200).json(cart);
+  } catch (error) {
+    console.error('Error removing item from cart:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Delete entire Cart by User ID
+router.delete('/:userId', async (req, res) => {
+  try {
+    const deletedCart = await Cart.findOneAndDelete({ userId: req.params.userId });
+    if (!deletedCart) {
+      return res.status(404).json({ message: 'Cart not found' });
+    }
+    res.status(200).json({ message: 'Cart deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting cart:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Get cart summary (total items, total amount) - FIXED for electronics
+router.get('/:userId/summary', async (req, res) => {
+  try {
+    const cart = await Cart.findOne({ userId: req.params.userId });
+    if (!cart) {
+      return res.status(404).json({ message: 'Cart not found' });
+    }
+
+    const totalItems = cart.items.length;
+    const totalAmount = cart.items.reduce((sum, item) => sum + item.totalPrice, 0);
+    const totalQuantity = cart.items.reduce((sum, item) => sum + item.quantity, 0);
+
+    res.status(200).json({
+      userId: cart.userId,
+      totalItems,
+      totalAmount,
+      totalQuantity,
+      lastUpdated: cart.updatedAt
+    });
+  } catch (error) {
+    console.error('Error fetching cart summary:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+module.exports = router;
+
+const express = require('express');
+const router = express.Router();
+const Checkout = require('../models/Checkout');
+
+// Helper function to generate order number
+const generateOrderNumber = async () => {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).substr(2, 5).toUpperCase();
+
+  let orderNumber;
+  let isUnique = false;
+  let attempts = 0;
+  const maxAttempts = 5;
+
+  while (!isUnique && attempts < maxAttempts) {
+    orderNumber = `ORD-${timestamp}-${random}${attempts > 0 ? attempts : ''}`;
+
+    // Check if this order number already exists
+    const existingOrder = await Checkout.findOne({ orderNumber });
+    if (!existingOrder) {
+      isUnique = true;
+    } else {
+      attempts++;
+    }
+  }
+
+  if (!isUnique) {
+    // Fallback: use timestamp + random number
+    orderNumber = `ORD-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  }
+
+  return orderNumber;
+};
+
+// Create Checkout
+router.post('/', async (req, res) => {
+  try {
+    console.log('Received checkout request:', req.body); // Debug log
+
+    const {
+      userId,
+      // Customer Information
+      customerName,
+      customerPhone,
+      customerEmail,
+      // Cart and Order Details
+      cartItems,
+      totalAmount,
+      deliveryCharges,
+      finalAmount,
+      // Delivery Information
+      deliveryAddress,
+      specialInstructions,
+      // Payment Information
+      paymentMethod,
+      // Order Type
+      orderType
+    } = req.body;
+
+    // Enhanced validation
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'User ID is required'
+      });
+    }
+
+    if (!customerName || !customerPhone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Customer name and phone number are required'
+      });
+    }
+
+    if (!cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cart items are required and must be a non-empty array'
+      });
+    }
+
+    if (!totalAmount || totalAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Total amount is required and must be greater than 0'
+      });
+    }
+
+    if (!deliveryAddress || !deliveryAddress.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Delivery address is required'
+      });
+    }
+
+    // Calculate finalAmount if not provided
+    const calculatedDeliveryCharges = deliveryCharges || 200;
+    const calculatedFinalAmount = finalAmount || (totalAmount + calculatedDeliveryCharges);
+
+    // Generate order number explicitly
+    const orderNumber = await generateOrderNumber();
+
+    // Create checkout document with all required fields
+    const checkout = new Checkout({
+      userId,
+      orderNumber, // Explicitly set the order number
+      // Customer Information
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
+      customerEmail: customerEmail ? customerEmail.trim() : undefined,
+      // Cart Items
+      // backend/routes/checkoutRoutes.js (POST /)
+      cartItems: cartItems.map(item => ({
+        productId: item.productId || item.id,
+        name: item.name,
+        price: item.price,
+        category: item.category,
+        brand: item.brand,
+        image: item.image,
+        quantity: item.quantity,
+        totalPrice: item.totalPrice
+      })),
+      // Order Amounts
+      totalAmount,
+      deliveryCharges: calculatedDeliveryCharges,
+      finalAmount: calculatedFinalAmount,
+      // Delivery Information
+      deliveryAddress: deliveryAddress.trim(),
+      specialInstructions: specialInstructions ? specialInstructions.trim() : undefined,
+      // Payment Information
+      paymentMethod: paymentMethod || 'cash',
+      // Order Type
+      orderType: orderType || 'electronics',
+      // Default statuses
+      paymentStatus: 'pending',
+      orderStatus: 'pending'
+    });
+
+    const savedCheckout = await checkout.save();
+
+    res.status(201).json({
+      success: true,
+      message: 'Order placed successfully',
+      order: savedCheckout
+    });
+
+  } catch (error) {
+    console.error('Error creating checkout:', error);
+
+    // Handle validation errors specifically
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: validationErrors,
+        details: error.errors
+      });
+    }
+
+    // Handle duplicate key errors (for orderNumber uniqueness)
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Order number already exists. Please try again.'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Get all Checkouts with optional filtering
+router.get('/', async (req, res) => {
+  try {
+    const { userId, orderStatus, paymentStatus, limit = 50, page = 1 } = req.query;
+
+    // Build filter object
+    const filter = {};
+    if (userId) filter.userId = userId;
+    if (orderStatus) filter.orderStatus = orderStatus;
+    if (paymentStatus) filter.paymentStatus = paymentStatus;
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const checkouts = await Checkout.find(filter)
+      .sort({ createdAt: -1 }) // Most recent first
+      .limit(parseInt(limit))
+      .skip(skip);
+
+    const total = await Checkout.countDocuments(filter);
+
+    res.status(200).json({
+      success: true,
+      data: checkouts,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching checkouts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Get checkouts by user ID
+router.get('/user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const checkouts = await Checkout.find({ userId })
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      data: checkouts
+    });
+  } catch (error) {
+    console.error('Error fetching user checkouts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Get single Checkout by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const checkout = await Checkout.findById(req.params.id);
+    if (!checkout) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+    res.status(200).json({
+      success: true,
+      data: checkout
+    });
+  } catch (error) {
+    console.error('Error fetching checkout:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Update Checkout status
+router.patch('/:id/status', async (req, res) => {
+  try {
+    const { orderStatus, paymentStatus } = req.body;
+
+    const updateData = {};
+    if (orderStatus) updateData.orderStatus = orderStatus;
+    if (paymentStatus) updateData.paymentStatus = paymentStatus;
+
+    // Set delivery date if order is delivered
+    if (orderStatus === 'delivered') {
+      updateData.actualDelivery = new Date();
+    }
+
+    const updated = await Checkout.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Order status updated successfully',
+      data: updated
+    });
+  } catch (error) {
+    console.error('Error updating checkout status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Update Checkout by ID (full update)
+router.put('/:id', async (req, res) => {
+  try {
+    const updated = await Checkout.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true, runValidators: true }
+    );
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+    res.status(200).json({
+      success: true,
+      message: 'Order updated successfully',
+      data: updated
+    });
+  } catch (error) {
+    console.error('Error updating checkout:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Delete Checkout by ID
+router.delete('/:id', async (req, res) => {
+  try {
+    const deleted = await Checkout.findByIdAndDelete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+    res.status(200).json({
+      success: true,
+      message: 'Order deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting checkout:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Search orders by phone number
+router.get('/search/phone/:phone', async (req, res) => {
+  try {
+    const { phone } = req.params;
+    const checkouts = await Checkout.findByPhone(phone)
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      data: checkouts
+    });
+  } catch (error) {
+    console.error('Error searching by phone:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+module.exports = router;
+
+
+const express = require('express');
+const passport = require('../configurations/googleConfig');
+const { generateToken } = require('../utils/jwtUtils');
+const router = express.Router();
+
+// Initiate Google OAuth
+router.get('/google', passport.authenticate('google', {
+    scope: ['profile', 'email']
+}));
+
+// Google OAuth callback
+router.get('/google/callback', 
+    passport.authenticate('google', { session: false }),
+    (req, res) => {
+        try {
+            // Generate JWT token
+            const token = generateToken(req.user);
+            
+            // Redirect to frontend with token
+            res.redirect(`${process.env.FRONTEND_URL}/auth/success?token=${token}`);
+        } catch (error) {
+            console.error('Google auth callback error:', error);
+            res.redirect(`${process.env.FRONTEND_URL}/auth/error`);
+        }
+    }
+);
+
+module.exports = router;
+
+
+//routes/login.js
+
+const express = require("express");
+const { login, refreshToken } = require("../controllers/login");
+const router = express.Router();
+
+router.post("/login", login);
+router.post("/refresh-token", refreshToken);
+
+module.exports = router;
+
+// backend/routes/productRoutes.js
+const express = require('express');
+const router = express.Router();
+const Product = require('../models/Product');
+
+// GET all products
+router.get('/', async (req, res) => {
+  try {
+    const products = await Product.find({ available: true });
+    res.status(200).json(products);
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// GET single product by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    res.status(200).json(product);
+  } catch (error) {
+    console.error('Error fetching product:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// POST create new product (for admin)
+router.post('/', async (req, res) => {
+  try {
+    const { name, price, category, brand, specifications, image } = req.body;
+
+    if (!name || !price || !category || !brand || !image) {
+      return res.status(400).json({ message: 'Required fields: name, price, category, brand, image' });
+    }
+
+    const product = new Product({ name, price, category, brand, specifications, image });
+    await product.save();
+    res.status(201).json(product);
+  } catch (error) {
+    console.error('Error creating product:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PUT update product by ID (for admin)
+router.put('/:id', async (req, res) => {
+  try {
+    const updatedProduct = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    if (!updatedProduct) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    res.status(200).json(updatedProduct);
+  } catch (error) {
+    console.error('Error updating product:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// DELETE product by ID (for admin)
+router.delete('/:id', async (req, res) => {
+  try {
+    const deletedProduct = await Product.findByIdAndDelete(req.params.id);
+    if (!deletedProduct) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    res.status(200).json({ message: 'Product deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting product:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+module.exports = router;
+
+
+//routes/signup.js
+const express = require("express");
+const signupController = require("../controllers/signup");
+
+
+const router = express.Router();
+
+router.post("/signup", signupController.createUser);
+
+module.exports = router;
+
+//routes/user.js
+const express = require("express");
+const { getUsers } = require("../controllers/user");
+const { authenticateToken } = require("../utils/authMiddleware");
+const router = express.Router();
+
+router.get("/users", authenticateToken, getUsers);
+
+module.exports = router;
+
+
+//script/admin.js
+const User = require("../models/User");
+const bcrypt = require("bcrypt");
+
+async function createAdminAccount() {
+    try {
+        const existingAdmin = await User.findOne({ email: "admin@test.com" });
+        if (!existingAdmin) {
+            const newAdmin = new User({
+                email: "admin@test.com",
+                name: "Admin",
+                password: await bcrypt.hash("admin", 10),
+                role: "admin"
+            });
+            await newAdmin.save();
+            console.log("Admin account created successfully");
+        } else {
+            console.log("Admin already exist");
+        }
+    } catch (error) {
+        console.error(error.message);
+    }
+}
+
+module.exports = createAdminAccount;
+
+
+//services/login.js
+const bcrypt = require("bcrypt");
+const User = require("../models/User");
+const { generateToken } = require("../utils/jwtUtils");
+const { verifyToken } = require("../utils/authMiddleware")
+
+async function login(email, password) {
+    try {
+        const existingUser = await User.findOne({ email });
+        if (!existingUser) {
+            throw new Error("User not found");
+        }
+        const isPasswordValid = await bcrypt.compare(password, existingUser.password);
+        if (!isPasswordValid) {
+            throw new Error("Incorrect password");
+        }
+        const token = generateToken(existingUser);
+        return token;
+    } catch (error) {
+        console.log("Error Message : ", error);
+        throw new Error("Invalid credentials");
+    }
+}
+
+async function refreshToken(oldToken) {
+    try {
+        const decodedToken = verifyToken(oldToken); // Verifies the JWT
+        const user = await User.findById(decodedToken._id); // Make sure to await if it's a Promise
+
+        if (!user) {
+            throw new Error("User not found");
+        }
+
+        const newToken = generateToken(user); // Generates a new token
+        return newToken;
+
+    } catch (error) {
+        throw new Error("Invalid token");
+    }
+}
+
+module.exports = {
+    login,
+    refreshToken
+};
+
+
+////services/signup.js
+const User = require("../models/User");
+const bcrypt = require("bcrypt");
+
+async function createUser(userData) {
+    const { name, email, password } = userData;
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const createdUser = new User({
+        name,
+        email,
+        password: hashedPassword,
+        role: "customer"
+    });
+
+    const savedUser = await createdUser.save();
+    return savedUser;
+
+}
+
+module.exports = { createUser }
+
+
+//services/user.js
+const User = require("../models/User");
+
+async function getUsers() {
+   const users = await User.find({});
+   return users;
+}
+
+module.exports = { getUsers };
+
+
+//utils/authMiddleware.js
+const jwt = require("jsonwebtoken");
+const { secretKey } = require("../configurations/jwtConfig"); // ✅ Destructure the import
+
+function authenticateToken(req, res, next) {
+   const authHeader = req.header("Authorization");
+   if (!authHeader) {
+       return res.status(401).json({ message: "Unauthorized: Missing token!" });
+   }
+   
+   const [bearer, token] = authHeader.split(" ");
+   if (bearer !== "Bearer" || !token) {
+       return res.status(401).json({ message: "Unauthorized: Invalid token format" });
+   }
+   
+   jwt.verify(token, secretKey, (err, user) => { // ✅ Now using the actual string
+       if (err) {
+           console.log("JWT verification error:", err.message); // Add logging
+           return res.status(403).json({ message: "Forbidden: Invalid Token" });
+       }
+       req.user = user;
+       next();
+   });
+}
+
+function verifyToken(token) {
+    try {
+        return jwt.verify(token, secretKey);
+    } catch (error) {
+        throw new Error("Invalid token");
+    }
+}
+
+
+module.exports = { authenticateToken, verifyToken };
+
+
+//utils/jwtUtils.js
+const jwt = require("jsonwebtoken");
+const { secretKey } = require("../configurations/jwtConfig");
+
+function generateToken(user) {
+    const payload = {
+        id: user._id,
+        email: user.email,
+        role: user.role
+    };
+    return jwt.sign(payload, secretKey, { expiresIn: "1h" });
+}
+
+module.exports = {
+    generateToken
+};
+
+
+//backend/server.js
+require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+const bodyParser = require('body-parser');
+const cors = require('cors'); // Add CORS
+
+const cartRoutes = require('./routes/cartRoutes');
+const checkoutRoutes = require('./routes/checkoutRoutes');
+const productRoutes = require('./routes/productRoutes');
+const authRoutes = require('./routes/googleAuth');
+const loginRoutes = require('./routes/login');
+const signupRoutes = require('./routes/signup');
+const userRoutes = require('./routes/user');
+const createAdminAccount = require("./scripts/admin");
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middleware
+app.use(cors({
+  origin: 'http://localhost:3000', // Allow requests from React app
+  credentials: true
+}));
+
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// MongoDB connection
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
+.then(() => console.log('MongoDB connected'))
+.catch(err => {
+  console.error('MongoDB connection error:', err);
+  process.exit(1);
+});
+
+// Routes
+app.use('/api/cart', cartRoutes);
+app.use('/api/checkout', checkoutRoutes);
+app.use('/api/products', productRoutes);
+app.use("/user", signupRoutes);
+app.use("/auth", loginRoutes);
+app.use("/auth", authRoutes);  // Add Google auth routes
+app.use("/api", userRoutes);
+
+
+createAdminAccount();
+
+// Home route
+app.get('/', (req, res) => {
+  res.send('Welcome to HomeCook Backend!');
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(500).json({ message: 'Internal server error' });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});

@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/Order-Management-React/static/css/main.329097c8.css",
+    "main.js": "/Order-Management-React/static/js/main.df86677a.js",
+    "index.html": "/Order-Management-React/index.html",
+    "main.329097c8.css.map": "/Order-Management-React/static/css/main.329097c8.css.map",
+    "main.df86677a.js.map": "/Order-Management-React/static/js/main.df86677a.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.329097c8.css",
+    "static/js/main.df86677a.js"
+  ]
+}
