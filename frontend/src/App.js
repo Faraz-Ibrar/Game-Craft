@@ -8,39 +8,46 @@ import { CartProvider } from "./Components/MenuManager/CartContext";
 import Header from "./Components/MenuManager/Header";
 import { useCart } from "./Components/MenuManager/CartContext";
 import Footer from "./Components/MenuManager/Footer";
-import { AuthProvider } from './Components/AuthContext';
+import { AuthProvider, useAuth } from './Components/AuthContext';
+import AdminDashboard from "./Components/MenuManager/AdminDashboard";
 import "./App.css";
 
-// Auth Success Component to handle Google OAuth callback
+// Auth Success Component
+// Auth Success Component
 function AuthSuccess() {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('token');
     const error = urlParams.get('error');
+    const userRole = urlParams.get('role'); // If your auth service sends role in URL
 
     if (token) {
-      // Token will be handled by Header component's useEffect
-      // Just redirect to home page
-      navigate('/', { replace: true });
+      // Wait a moment for user context to be available
+      setTimeout(() => {
+        if (user?.role === 'admin' || userRole === 'admin') {
+          navigate('/admin', { replace: true });
+        } else {
+          navigate('/', { replace: true });
+        }
+      }, 100);
     } else if (error) {
-      // Handle error case
       console.error('Auth error:', error);
       navigate('/', { replace: true });
     } else {
-      // No token or error, redirect to home
       navigate('/', { replace: true });
     }
-  }, [navigate]);
+  }, [navigate, user]);
 
   return (
-    <div style={{ 
-      display: 'flex', 
-      justifyContent: 'center', 
-      alignItems: 'center', 
+    <div style={{
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
       height: '50vh',
-      flexDirection: 'column' 
+      flexDirection: 'column'
     }}>
       <div>🔄 Completing authentication...</div>
       <div style={{ marginTop: '10px', fontSize: '14px', color: '#666' }}>
@@ -49,10 +56,37 @@ function AuthSuccess() {
     </div>
   );
 }
+// Protected Route Component
+function ProtectedRoute({ children, requiredRole = 'admin' }) {
+  const { user, loading } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!loading && (!user || user.role !== requiredRole)) {
+      navigate('/');
+    }
+  }, [user, loading, navigate, requiredRole]);
+
+  if (loading) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '50vh'
+      }}>
+        Loading...
+      </div>
+    );
+  }
+
+  return user?.role === requiredRole ? children : null;
+}
 
 function AppWithHeader() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
   const {
     getTotalItemsInCart,
     totalAmount
@@ -64,7 +98,7 @@ function AppWithHeader() {
 
   const getPageTitle = (pathname) => {
     switch (pathname) {
-      case '/': return 'Products';
+      case '/admin': return 'Admin Dashboard';
       case '/cart': return 'Shopping Cart';
       case '/checkout': return 'Checkout';
       case '/order-confirmation': return 'Order Confirmation';
@@ -81,6 +115,7 @@ function AppWithHeader() {
         onCartClick={handleCartClick}
         showCartLoading={false}
         title={getPageTitle(location.pathname)}
+        showAdminLink={user?.role === 'admin'}
       />
       <Routes>
         <Route path="/" element={<ProductsPage />} />
@@ -88,9 +123,16 @@ function AppWithHeader() {
         <Route path="/checkout" element={<CheckoutPage />} />
         <Route path="/order-confirmation" element={<OrderConfirmationPage />} />
         <Route path="/auth/success" element={<AuthSuccess />} />
+
+        {/* Admin Route */}
+        <Route path="/admin" element={
+          <ProtectedRoute requiredRole="admin">
+            <AdminDashboard />
+          </ProtectedRoute>
+        } />
       </Routes>
 
-      <Footer></Footer>
+      <Footer />
     </div>
   );
 }

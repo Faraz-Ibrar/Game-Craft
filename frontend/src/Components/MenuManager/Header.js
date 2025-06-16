@@ -92,6 +92,13 @@ export default function Header({
     if (result.success) {
       setShowAuthModal(false);
       setFormData({ email: '', password: '', name: '', confirmPassword: '' });
+      
+      // Redirect based on user role
+      if (result.user?.role === 'admin') {
+        navigate('/admin');
+      } else {
+        navigate('/');
+      }
     }
   };
 
@@ -114,11 +121,23 @@ export default function Header({
     if (result.success) {
       setShowAuthModal(false);
       setFormData({ email: '', password: '', name: '', confirmPassword: '' });
+      
+      // Redirect based on user role (in case admin signs up)
+      if (result.user?.role === 'admin') {
+        navigate('/admin');
+      } else {
+        navigate('/');
+      }
     }
   };
 
-  const handleGoogleLogin = () => {
-    loginWithGoogle();
+  const handleGoogleLogin = async () => {
+    const result = await loginWithGoogle();
+    
+    // If Google login returns a result, handle redirect
+    if (result?.success && result?.user?.role === 'admin') {
+      navigate('/admin');
+    }
   };
 
   const handleLogout = async () => {
@@ -132,6 +151,12 @@ export default function Header({
     setShowAuthModal(true);
     clearError();
     setFormData({ email: '', password: '', name: '', confirmPassword: '' });
+  };
+
+  // Add admin dashboard link handler
+  const handleAdminClick = () => {
+    navigate('/admin');
+    setShowUserMenu(false);
   };
 
   return (
@@ -189,9 +214,25 @@ export default function Header({
                     <div className="user-details">
                       <strong>{user?.name}</strong>
                       <small>{user?.email}</small>
+                      {user?.role === 'admin' && (
+                        <small style={{ color: '#28a745', fontWeight: 'bold' }}>Admin</small>
+                      )}
                     </div>
                   </div>
                   <hr className="dropdown-divider" />
+                  
+                  {/* Show admin dashboard link for admin users */}
+                  {user?.role === 'admin' && (
+                    <button
+                      className="dropdown-item"
+                      onClick={handleAdminClick}
+                      style={{ color: 'white' }}
+                    >
+                      <span className="item-icon">⚡</span>
+                      Admin Dashboard
+                    </button>
+                  )}
+
                   <button
                     className="dropdown-item"
                     style={{ color: 'white' }}
