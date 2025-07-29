@@ -1,6 +1,6 @@
 # Game Craft
 
-Game Craft is a web application designed for managing an online food ordering system. It allows users to browse menu items, add them to their cart, and proceed to checkout. The application features an admin dashboard for managing users, products, and orders.
+Game Craft is a web application designed for managing an online PC parts ordering system. It allows users to browse menu items, add them to their cart, and proceed to checkout. The application features an admin dashboard for managing users, products, and orders.
 
 ## Table of Contents
 
